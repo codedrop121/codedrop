@@ -577,14 +577,20 @@ launchBtn.addEventListener('click', async function() {
     var baseUrl = window.location.href.split('#')[0].split('?')[0];
     var viewUrl = baseUrl + '#s=' + blobId;
 
-    // Try to shorten
-    try {
-      var shortRes = await fetch('https://is.gd/create.php?format=json&url=' + encodeURIComponent(viewUrl));
-      if (shortRes.ok) {
-        var data = await shortRes.json();
-        if (data.shorturl) viewUrl = data.shorturl;
-      }
-    } catch (e) { /* use long URL */ }
+    // Try multiple shorteners for shortest possible URL
+    var shorteners = [
+      'https://v.gd/create.php?format=json&url=',
+      'https://is.gd/create.php?format=json&url='
+    ];
+    for (var i = 0; i < shorteners.length; i++) {
+      try {
+        var shortRes = await fetch(shorteners[i] + encodeURIComponent(viewUrl));
+        if (shortRes.ok) {
+          var data = await shortRes.json();
+          if (data.shorturl) { viewUrl = data.shorturl; break; }
+        }
+      } catch (e) { continue; }
+    }
 
     var newTab = window.open(viewUrl, '_blank');
     if (!newTab) {
@@ -843,14 +849,20 @@ shareBtn.addEventListener('click', async function() {
     var shareUrl = baseUrl + '#s=' + blobId;
 
     try {
-      var shortRes = await fetch('https://is.gd/create.php?format=json&url=' + encodeURIComponent(shareUrl));
-      if (shortRes.ok) {
-        var data = await shortRes.json();
-        if (data.shorturl) {
-          await copyToClipboard(data.shorturl);
-          showToast('Short link copied: ' + data.shorturl);
-          label.textContent = 'Share';
-          return;
+      var shorteners = [
+        'https://v.gd/create.php?format=json&url=',
+        'https://is.gd/create.php?format=json&url='
+      ];
+      for (var si = 0; si < shorteners.length; si++) {
+        var shortRes = await fetch(shorteners[si] + encodeURIComponent(shareUrl));
+        if (shortRes.ok) {
+          var data = await shortRes.json();
+          if (data.shorturl) {
+            await copyToClipboard(data.shorturl);
+            showToast('Short link copied: ' + data.shorturl);
+            label.textContent = 'Share';
+            return;
+          }
         }
       }
     } catch (e) {
