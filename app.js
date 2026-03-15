@@ -570,8 +570,15 @@ launchBtn.addEventListener('click', async function() {
 
     if (!res.ok) throw new Error('Upload failed');
 
-    var location = res.headers.get('Location') || '';
-    var blobId = location.split('/').pop() || res.url.split('/').pop();
+    // Try multiple ways to get the blob ID
+    var blobId = res.headers.get('X-jsonblob-id') || '';
+    if (!blobId) {
+      var location = res.headers.get('Location') || '';
+      blobId = location.split('/').pop();
+    }
+    if (!blobId) {
+      blobId = res.url.split('/').pop();
+    }
     if (!blobId) throw new Error('No blob ID');
 
     var baseUrl = window.location.href.split('#')[0].split('?')[0];
@@ -840,8 +847,9 @@ shareBtn.addEventListener('click', async function() {
 
     if (!res.ok) throw new Error('Upload failed');
 
-    var location = res.headers.get('Location') || '';
-    var blobId = location.split('/').pop() || res.url.split('/').pop();
+    var blobId = res.headers.get('X-jsonblob-id') || '';
+    if (!blobId) { var location = res.headers.get('Location') || ''; blobId = location.split('/').pop(); }
+    if (!blobId) { blobId = res.url.split('/').pop(); }
 
     if (!blobId) throw new Error('No blob ID');
 
