@@ -560,35 +560,64 @@ launchBtn.addEventListener('click', async function() {
   var launchLabel = launchBtn.querySelector('.launch-label');
   launchLabel.textContent = 'Uploading...';
 
+  var viewUrl = '';
+
   try {
-    // Upload to jsonblob
+    // Method 1: Upload to jsonblob and get ID from response
     var res = await fetch('https://jsonblob.com/api/jsonBlob', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
       body: JSON.stringify({ html: html }),
     });
 
-    if (!res.ok) throw new Error('Upload failed');
+    if (!res.ok) throw new Error('Upload failed: ' + res.status);
 
-    // Try multiple ways to get the blob ID
-    var blobId = res.headers.get('X-jsonblob-id') || '';
-    if (!blobId) {
-      var location = res.headers.get('Location') || '';
-      blobId = location.split('/').pop();
+    // Get blob ID - the URL after redirect contains the ID
+    var blobId = '';
+    // Check response URL (after redirect it contains the ID)
+    if (res.url && res.url.indexOf('/api/jsonBlob/') !== -1) {
+      blobId = res.url.split('/api/jsonBlob/').pop();
     }
+    // Check headers
+    if (!blobId) blobId = res.headers.get('X-jsonblob-id') || '';
     if (!blobId) {
-      blobId = res.url.split('/').pop();
+      var loc = res.headers.get('Location') || '';
+      if (loc) blobId = loc.split('/').pop();
     }
-    if (!blobId) throw new Error('No blob ID');
+    // Last resort: parse response body for any ID
+    if (!blobId) {
+      var bodyText = await res.text();
+      // jsonblob returns the stored JSON back, but the ID is only in headers/URL
+      throw new Error('Could not get blob ID');
+    }
 
     var baseUrl = window.location.href.split('#')[0].split('?')[0];
-    var viewUrl = baseUrl + '#s=' + blobId;
+    viewUrl = baseUrl + '#s=' + blobId;
+  } catch (err) {
+    // Method 2: Compress HTML into URL with lz-string
+    try {
+      var compressed = LZString.compressToEncodedURIComponent(html);
+      var baseUrl = window.location.href.split('#')[0].split('?')[0];
+      viewUrl = baseUrl + '#c=' + compressed;
+    } catch (e) {
+      // Method 3: Blob URL fallback
+      var blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+      var url = URL.createObjectURL(blob);
+      if (state.launchedUrl) URL.revokeObjectURL(state.launchedUrl);
+      state.launchedUrl = url;
+      window.open(url, '_blank');
+      launchLabel.textContent = 'Launch';
+      return;
+    }
+  }
 
-    // Try multiple shorteners for shortest possible URL
-    var shorteners = [
-      'https://v.gd/create.php?format=json&url=',
-      'https://is.gd/create.php?format=json&url='
-    ];
+  // Try to shorten the URL
+  var shorteners = [
+    'https://v.gd/create.php?format=json&url=',
+    'https://is.gd/create.php?format=json&url='
+  ];
+  // Only try shortening if URL is under 5000 chars (shortener limit)
+  if (viewUrl.length < 5000) {
     for (var i = 0; i < shorteners.length; i++) {
       try {
         var shortRes = await fetch(shorteners[i] + encodeURIComponent(viewUrl));
@@ -598,20 +627,10 @@ launchBtn.addEventListener('click', async function() {
         }
       } catch (e) { continue; }
     }
-
-    var newTab = window.open(viewUrl, '_blank');
-    if (!newTab) {
-      alert('Pop-up blocked! Allow pop-ups and try again.');
-    }
-  } catch (err) {
-    // Fallback to blob URL
-    var blob = new Blob([html], { type: 'text/html;charset=utf-8' });
-    var url = URL.createObjectURL(blob);
-    if (state.launchedUrl) URL.revokeObjectURL(state.launchedUrl);
-    state.launchedUrl = url;
-    var newTab = window.open(url, '_blank');
-    if (!newTab) alert('Pop-up blocked! Allow pop-ups and try again.');
   }
+
+  var newTab = window.open(viewUrl, '_blank');
+  if (!newTab) alert('Pop-up blocked! Allow pop-ups and try again.');
 
   launchLabel.textContent = 'Launch';
 });
@@ -937,8 +956,8 @@ function checkForSharedSite() {
     return true;
   }
 
-  if (hash.startsWith('#code=')) {
-    var compressed = hash.slice(6);
+  if (hash.startsWith('#code=') || hash.startsWith('#c=')) {
+    var compressed = hash.startsWith('#c=') ? hash.slice(3) : hash.slice(6);
     var html = LZString.decompressFromEncodedURIComponent(compressed);
     if (!html) return false;
     showSharedView();
