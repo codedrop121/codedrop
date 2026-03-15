@@ -558,75 +558,22 @@ downloadBtn.addEventListener('click', function() {
 launchBtn.addEventListener('click', async function() {
   var html = buildPreviewHtml();
   var launchLabel = launchBtn.querySelector('.launch-label');
-  launchLabel.textContent = 'Uploading...';
+  launchLabel.textContent = 'Creating...';
 
-  var viewUrl = '';
+  // Compress HTML into URL using lz-string (runs locally, always works)
+  var compressed = LZString.compressToEncodedURIComponent(html);
+  var baseUrl = window.location.href.split('#')[0].split('?')[0];
+  var viewUrl = baseUrl + '#c=' + compressed;
 
-  try {
-    // Method 1: Upload to jsonblob and get ID from response
-    var res = await fetch('https://jsonblob.com/api/jsonBlob', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-      body: JSON.stringify({ html: html }),
-    });
-
-    if (!res.ok) throw new Error('Upload failed: ' + res.status);
-
-    // Get blob ID - the URL after redirect contains the ID
-    var blobId = '';
-    // Check response URL (after redirect it contains the ID)
-    if (res.url && res.url.indexOf('/api/jsonBlob/') !== -1) {
-      blobId = res.url.split('/api/jsonBlob/').pop();
-    }
-    // Check headers
-    if (!blobId) blobId = res.headers.get('X-jsonblob-id') || '';
-    if (!blobId) {
-      var loc = res.headers.get('Location') || '';
-      if (loc) blobId = loc.split('/').pop();
-    }
-    // Last resort: parse response body for any ID
-    if (!blobId) {
-      var bodyText = await res.text();
-      // jsonblob returns the stored JSON back, but the ID is only in headers/URL
-      throw new Error('Could not get blob ID');
-    }
-
-    var baseUrl = window.location.href.split('#')[0].split('?')[0];
-    viewUrl = baseUrl + '#s=' + blobId;
-  } catch (err) {
-    // Method 2: Compress HTML into URL with lz-string
+  // Try to shorten with is.gd (supports CORS)
+  if (viewUrl.length < 15000) {
     try {
-      var compressed = LZString.compressToEncodedURIComponent(html);
-      var baseUrl = window.location.href.split('#')[0].split('?')[0];
-      viewUrl = baseUrl + '#c=' + compressed;
-    } catch (e) {
-      // Method 3: Blob URL fallback
-      var blob = new Blob([html], { type: 'text/html;charset=utf-8' });
-      var url = URL.createObjectURL(blob);
-      if (state.launchedUrl) URL.revokeObjectURL(state.launchedUrl);
-      state.launchedUrl = url;
-      window.open(url, '_blank');
-      launchLabel.textContent = 'Launch';
-      return;
-    }
-  }
-
-  // Try to shorten the URL
-  var shorteners = [
-    'https://v.gd/create.php?format=json&url=',
-    'https://is.gd/create.php?format=json&url='
-  ];
-  // Only try shortening if URL is under 5000 chars (shortener limit)
-  if (viewUrl.length < 5000) {
-    for (var i = 0; i < shorteners.length; i++) {
-      try {
-        var shortRes = await fetch(shorteners[i] + encodeURIComponent(viewUrl));
-        if (shortRes.ok) {
-          var data = await shortRes.json();
-          if (data.shorturl) { viewUrl = data.shorturl; break; }
-        }
-      } catch (e) { continue; }
-    }
+      var shortRes = await fetch('https://is.gd/create.php?format=json&url=' + encodeURIComponent(viewUrl));
+      if (shortRes.ok) {
+        var data = await shortRes.json();
+        if (data.shorturl) viewUrl = data.shorturl;
+      }
+    } catch (e) { /* shortening failed, use full URL */ }
   }
 
   var newTab = window.open(viewUrl, '_blank');
@@ -855,61 +802,26 @@ function showToast(msg, duration) {
 shareBtn.addEventListener('click', async function() {
   var html = buildPreviewHtml();
   var label = shareBtn.querySelector('.launch-label');
-  label.textContent = 'Uploading...';
+  label.textContent = 'Creating...';
 
-  try {
-    var res = await fetch('https://jsonblob.com/api/jsonBlob', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-      body: JSON.stringify({ html: html }),
-    });
+  // Compress HTML into URL using lz-string (runs locally, always works)
+  var compressed = LZString.compressToEncodedURIComponent(html);
+  var baseUrl = window.location.href.split('#')[0].split('?')[0];
+  var shareUrl = baseUrl + '#c=' + compressed;
 
-    if (!res.ok) throw new Error('Upload failed');
-
-    var blobId = res.headers.get('X-jsonblob-id') || '';
-    if (!blobId) { var location = res.headers.get('Location') || ''; blobId = location.split('/').pop(); }
-    if (!blobId) { blobId = res.url.split('/').pop(); }
-
-    if (!blobId) throw new Error('No blob ID');
-
-    var baseUrl = window.location.href.split('#')[0].split('?')[0];
-    var shareUrl = baseUrl + '#s=' + blobId;
-
+  // Try to shorten with is.gd
+  if (shareUrl.length < 15000) {
     try {
-      var shorteners = [
-        'https://v.gd/create.php?format=json&url=',
-        'https://is.gd/create.php?format=json&url='
-      ];
-      for (var si = 0; si < shorteners.length; si++) {
-        var shortRes = await fetch(shorteners[si] + encodeURIComponent(shareUrl));
-        if (shortRes.ok) {
-          var data = await shortRes.json();
-          if (data.shorturl) {
-            await copyToClipboard(data.shorturl);
-            showToast('Short link copied: ' + data.shorturl);
-            label.textContent = 'Share';
-            return;
-          }
-        }
+      var shortRes = await fetch('https://is.gd/create.php?format=json&url=' + encodeURIComponent(shareUrl));
+      if (shortRes.ok) {
+        var data = await shortRes.json();
+        if (data.shorturl) shareUrl = data.shorturl;
       }
-    } catch (e) {
-      // Shortener failed
-    }
-
-    await copyToClipboard(shareUrl);
-    showToast('Link copied to clipboard!');
-  } catch (err) {
-    try {
-      var compressed = LZString.compressToEncodedURIComponent(html);
-      var baseUrl2 = window.location.href.split('#')[0].split('?')[0];
-      var fullUrl = baseUrl2 + '#code=' + compressed;
-      await copyToClipboard(fullUrl);
-      showToast('Link copied (could not shorten)');
-    } catch (e2) {
-      showToast('Share failed - try again');
-    }
+    } catch (e) { /* shortening failed, use full URL */ }
   }
 
+  await copyToClipboard(shareUrl);
+  showToast('Link copied: ' + shareUrl);
   label.textContent = 'Share';
 });
 
