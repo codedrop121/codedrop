@@ -555,20 +555,52 @@ downloadBtn.addEventListener('click', function() {
 
 // --- Launch as live site in new tab ---
 
-launchBtn.addEventListener('click', function() {
+launchBtn.addEventListener('click', async function() {
   var html = buildPreviewHtml();
-  var blob = new Blob([html], { type: 'text/html;charset=utf-8' });
-  var url = URL.createObjectURL(blob);
+  var launchLabel = launchBtn.querySelector('.launch-label');
+  launchLabel.textContent = 'Uploading...';
 
-  if (state.launchedUrl) {
-    URL.revokeObjectURL(state.launchedUrl);
-  }
-  state.launchedUrl = url;
+  try {
+    // Upload to jsonblob
+    var res = await fetch('https://jsonblob.com/api/jsonBlob', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      body: JSON.stringify({ html: html }),
+    });
 
-  var newTab = window.open(url, '_blank');
-  if (!newTab) {
-    alert('Pop-up blocked! Please allow pop-ups for this site, then try again.');
+    if (!res.ok) throw new Error('Upload failed');
+
+    var location = res.headers.get('Location') || '';
+    var blobId = location.split('/').pop() || res.url.split('/').pop();
+    if (!blobId) throw new Error('No blob ID');
+
+    var baseUrl = window.location.href.split('#')[0].split('?')[0];
+    var viewUrl = baseUrl + '#s=' + blobId;
+
+    // Try to shorten
+    try {
+      var shortRes = await fetch('https://is.gd/create.php?format=json&url=' + encodeURIComponent(viewUrl));
+      if (shortRes.ok) {
+        var data = await shortRes.json();
+        if (data.shorturl) viewUrl = data.shorturl;
+      }
+    } catch (e) { /* use long URL */ }
+
+    var newTab = window.open(viewUrl, '_blank');
+    if (!newTab) {
+      alert('Pop-up blocked! Allow pop-ups and try again.');
+    }
+  } catch (err) {
+    // Fallback to blob URL
+    var blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+    var url = URL.createObjectURL(blob);
+    if (state.launchedUrl) URL.revokeObjectURL(state.launchedUrl);
+    state.launchedUrl = url;
+    var newTab = window.open(url, '_blank');
+    if (!newTab) alert('Pop-up blocked! Allow pop-ups and try again.');
   }
+
+  launchLabel.textContent = 'Launch';
 });
 
 // --- Run Rust Code ---
